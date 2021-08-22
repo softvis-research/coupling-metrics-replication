@@ -19,4 +19,4 @@ wget https://ndownloader.figshare.com/files/30359268?private_link=83a41d14daa984
 # and you will be required to update the original default password 
 neo4j-community-3.5.8/bin/neo4j-admin set-initial-password neo4j
 mkdir -p neo4j-community-3.5.8/data/databases/graph.db
-neo4j-community-3.5.8/bin/neo4j-admin load --from=/data/replication.dump --force
+neo4j-community-3.5.8/bin/neo4j-admin load --from=data/replication.dump --force
