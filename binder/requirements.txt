@@ -1,0 +1,6 @@
+# necessary libraries
+jupyter-server-proxy
+pandas==0.23.4
+neo4j
+py2neo
+notebook==5.5
