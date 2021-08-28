@@ -1,0 +1,1 @@
+define("marionette-3.1",["atlassian/libs/factories/marionette-3.1.0","atlassian/libs/factories/backbone.radio-2.0.0","underscore","backbone"],function(a,e,i,n){return a(i,n,e(i,n))});
