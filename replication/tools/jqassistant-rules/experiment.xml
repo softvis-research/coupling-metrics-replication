@@ -1,0 +1,290 @@
+<jqa:jqassistant-rules xmlns:jqa="http://www.buschmais.com/jqassistant/core/analysis/rules/schema/v1.0">
+
+    <concept id="experiment:dynamic:InnerType">
+        <description>Sets inner types for dynamic classes.
+        </description>
+        <cypher><![CDATA[
+			MATCH
+				(type:Type:Kieker)
+			WHERE
+				type.fqn CONTAINS '$'
+			WITH
+				type, SPLIT(type.fqn,'$')[0] AS declaringTypeFQN
+			WITH
+				type, declaringTypeFQN, LAST(SPLIT(declaringTypeFQN,'.')) AS declaringTypeName
+			MERGE
+				(declaringType:Type:Kieker {name:declaringTypeName, fqn:declaringTypeFQN})
+			MERGE
+				(declaringType)-[:DECLARES]->(type)
+			SET	
+				type:Inner
+			RETURN
+				COUNT(type) AS DynamicInnerTypes
+        ]]></cypher>
+    </concept>
+	
+	<concept id="experiment:dynamic:ClassCalls">
+        <requiresConcept refId="experiment:dynamic:InnerType"/>
+		<description>Creates the weighted call graph on type level, i.e., the CALLS relationship between
+            types if there are method calls between them.
+        </description>
+        <cypher><![CDATA[
+               MATCH
+                    (caller:Type:Kieker)-[:DECLARES*]->(:Method:Kieker)-[calls:CALLS]->(:Method:Kieker)<-[:DECLARES*]-(callee:Type:Kieker)
+               WHERE
+                    caller<>callee
+					AND NOT (caller:Inner OR callee:Inner)
+               WITH
+                    caller, callee, SUM(calls.weight) as aggregatedMethodCalls
+               MERGE
+                    (caller)-[calls:CALLS]->(callee)
+               SET
+                    calls.weight = aggregatedMethodCalls
+               RETURN
+                    SUM(calls.weight) AS DynamicClassCalls
+        ]]></cypher>
+	</concept>
+	
+	<concept id="experiment:dynamic:PackageContains">
+		<requiresConcept refId="experiment:dynamic:InnerType"/>
+        <description>Creates a package derived from the fully qualified name of a type monitored by Kieker and a
+            CONTAINS relationship to this type.
+        </description>
+        <cypher><![CDATA[
+                MATCH
+                    (type:Type:Kieker)
+				WHERE NOT 
+					(type:Type:Inner:Kieker)
+                WITH
+                    type, SPLIT(type.fqn,'.') AS fqnList
+                WITH
+                    type, REVERSE(tail(REVERSE(fqnList))) AS packageNames
+                WITH
+                    type, HEAD(REVERSE(packageNames)) as packageName, SUBSTRING(REDUCE(tmp="", p IN packageNames | tmp + "." + p),1) as packageFqn
+                MERGE
+                    (package:Package:Kieker {name:packageName, fqn:packageFqn})
+                MERGE
+                    (package)-[contains:CONTAINS]->(type)
+                RETURN
+                    COUNT(contains) AS DynamicPackageContains
+        ]]></cypher>
+    </concept>
+	
+    <concept id="experiment:dynamic:PackageCalls">
+        <requiresConcept refId="experiment:dynamic:PackageContains"/>
+        <requiresConcept refId="experiment:dynamic:ClassCalls"/>
+        <description>Creates the weighted call graph on package level, i.e., the CALLS relationship between
+            packages if there are CALLS relationships between their containing types.
+        </description>
+        <cypher><![CDATA[
+               MATCH
+                    (caller:Package:Kieker)-[:CONTAINS]->(:Type:Kieker)-[calls:CALLS]->(:Type:Kieker)<-[:CONTAINS]-(callee:Package:Kieker)
+               WHERE
+                    caller<>callee
+               WITH
+                    caller, callee, SUM(calls.weight) as aggregatedTypeCalls
+               MERGE
+					(caller)-[calls:CALLS]->(callee)
+               SET
+                    calls.weight = aggregatedTypeCalls
+               RETURN
+					SUM(calls.weight) AS DynamicPackageCalls
+        ]]></cypher>
+    </concept>
+	
+	<concept id="experiment:static:InnerType">
+		<requiresConcept refId="java:InnerType"/>
+        <description>Sets remaining inner types.</description>
+        <cypher><![CDATA[
+			MATCH
+				(type:Type:ByteCode)
+			WHERE
+				type.fqn CONTAINS '$' AND NOT type:Inner
+			WITH
+				type, SPLIT(type.fqn,'$')[0] AS declaringTypeFQN
+			WITH
+				type, declaringTypeFQN, LAST(SPLIT(declaringTypeFQN,'.')) AS declaringTypeName
+			MERGE
+				(declaringType:Type:Java:ByteCode {name:declaringTypeName, fqn:declaringTypeFQN})
+			MERGE
+				(declaringType)-[:DECLARES]->(type)
+			SET	
+				type:Inner
+			RETURN
+				COUNT(type) AS StaticInnerTypes
+        ]]></cypher>
+    </concept>
+	
+	<concept id="experiment:static:ExperimentTypes">
+		<requiresConcept refId="classpath:Resolve"/>
+		<requiresConcept refId="experiment:static:InnerType"/>
+		<requiresConcept refId="experiment:dynamic:ClassCalls"/>
+        <description>Labels all relevant static types of the experiment.</description>
+        <cypher><![CDATA[
+			MATCH
+				(dynamicType:Type:Kieker)
+			WHERE
+				EXISTS((dynamicType)-[:CALLS]->(:Type:Kieker))
+				OR EXISTS((:Type:Kieker)-[:CALLS]->(dynamicType))
+			WITH
+				COLLECT(DISTINCT dynamicType.fqn) AS dynamicTypes				
+            MATCH
+				(staticType:Java:Type:ByteCode)
+            WHERE
+				staticType.fqn IN dynamicTypes
+				AND NOT (staticType)-[:RESOLVES_TO]->()
+            SET
+				staticType:Experiment
+            RETURN
+				COUNT(staticType) AS StaticExperimentTypes
+        ]]></cypher>
+    </concept>
+	
+	<concept id="experiment:static:ClassCalls">
+		<requiresConcept refId="java:LambdaMethod"/>
+		<requiresConcept refId="experiment:static:InnerType"/>
+		<requiresConcept refId="experiment:static:ExperimentTypes"/>
+        <description>Creates the static unweighted call graph on class level</description>
+        <cypher><![CDATA[
+			MATCH
+                    (caller:Type:ByteCode:Experiment)-[:DECLARES*0..]->(:Type)-[:DECLARES]->(callerMethod:Method)-[:INVOKES]->(calleeMethod:Method)<-[:DECLARES]-(:Type)<-[:DECLARES*0..]-(callee:Type:ByteCode:Experiment)
+            WHERE
+                    caller.fqn <> callee.fqn
+					AND NOT (callerMethod:Lambda OR calleeMethod:Lambda OR callee:Interface)
+			MERGE
+                    (caller)-[calls:CALLS]->(callee)
+            RETURN
+                    COUNT(calls) AS StaticClassCalls
+        ]]></cypher>
+    </concept>
+
+	<concept id="experiment:static:PackageContains">
+		<requiresConcept refId="experiment:static:InnerType"/>
+		<requiresConcept refId="experiment:static:ExperimentTypes"/>
+        <description>Creates missing packages derived from the fully qualified name of a type and a CONTAINS relationship to this type.
+        </description>
+        <cypher><![CDATA[
+            MATCH
+                (type:Type:Java:Experiment)
+			WHERE NOT 
+				(type:Inner)
+			WITH
+                type, SPLIT(type.fqn,'.') AS fqnList
+            WITH
+                type, REVERSE(tail(REVERSE(fqnList))) AS packageNames
+            WITH
+                type, HEAD(REVERSE(packageNames)) AS packageName, SUBSTRING(REDUCE(tmp="", p IN packageNames | tmp + "." + p),1) AS packageFqn
+			WITH
+				type, packageName, packageFqn, '/' + REPLACE(packageFqn, ".", "/") AS packageFileName
+            MERGE
+                (package:Package:Java {name:packageName, fqn:packageFqn})
+            MERGE
+                (package)-[contains:CONTAINS]->(type)
+            RETURN
+                COUNT(contains) AS StaticPackageContains
+        ]]></cypher>
+    </concept>
+	
+	<concept id="experiment:static:ExperimentPackages">
+		<requiresConcept refId="experiment:static:PackageContains"/>
+		<requiresConcept refId="experiment:dynamic:PackageCalls"/>
+        <description>Labels all relevant static packages of the experiment.</description>
+        <cypher><![CDATA[
+			MATCH
+				(dynamicPackage:Package:Kieker)
+			WHERE
+				EXISTS((dynamicPackage)-[:CALLS]->(:Package:Kieker))
+				OR EXISTS((:Package:Kieker)-[:CALLS]->(dynamicPackage))				
+			WITH
+				COLLECT(DISTINCT dynamicPackage.fqn) AS dynamicPackages 
+			MATCH
+				(staticPackage:Package:Java)
+            WHERE
+				staticPackage.fqn IN dynamicPackages
+            SET
+				staticPackage:Experiment
+            RETURN 
+				COUNT(staticPackage) AS StaticExperimentPackages
+        ]]></cypher>
+    </concept>
+
+	<concept id="experiment:static:PackageCalls">
+		<requiresConcept refId="java:LambdaMethod"/>
+		<requiresConcept refId="experiment:static:InnerType"/>
+		<requiresConcept refId="experiment:static:ExperimentPackages"/>
+		<requiresConcept refId="experiment:static:PackageContains"/>
+        <description>Creates the static unweighted call graph on package level.</description>
+        <cypher><![CDATA[
+			MATCH					(callerPackage:Package:Java:Experiment)-[:CONTAINS]->(caller:Type)-[:DECLARES*0..]->(:Type)-[:DECLARES]->(callerMethod:Method)-[:INVOKES]->(calleeMethod:Method)<-[:DECLARES]-(:Type)<-[:DECLARES*0..]-(callee:Type)<-[:CONTAINS]-(calleePackage:Package:Java:Experiment)
+            WHERE
+                caller.fqn <> callee.fqn
+				AND callerPackage.fqn <> calleePackage.fqn 
+				AND NOT (callerMethod:Lambda OR calleeMethod:Lambda OR callee:Interface)
+            MERGE
+                (callerPackage)-[calls:CALLS]->(calleePackage)
+            RETURN
+                COUNT(calls) AS PackageCalls
+        ]]></cypher>
+    </concept>
+	
+	<concept id="experiment:dynamic:ExperimentTypes">
+		<requiresConcept refId="experiment:static:ClassCalls"/>
+        <description>Labels all relevant dynamic types of the experiment.</description>
+        <cypher><![CDATA[			
+			MATCH
+				(staticType:Type:ByteCode:Experiment)
+			WHERE
+				EXISTS((staticType)-[:CALLS]->(:Type:Experiment:ByteCode))
+				OR EXISTS((:Type:Experiment:ByteCode)-[:CALLS]->(staticType))
+			WITH
+				COLLECT(DISTINCT staticType.fqn) AS staticTypes				
+            MATCH
+				(dynamicType:Type:Kieker)
+            WHERE
+				dynamicType.fqn IN staticTypes
+            SET
+				dynamicType:Experiment
+            RETURN
+				COUNT(dynamicType) AS DynamicExperimentTypes
+        ]]></cypher>
+    </concept>
+	
+	<concept id="experiment:dynamic:ExperimentPackages">
+		<requiresConcept refId="experiment:static:PackageCalls"/>
+        <description>Labels all relevant dynamic packages of the experiment.</description>
+        <cypher><![CDATA[
+			MATCH
+				(staticPackage:Package:Java)
+			WHERE
+				EXISTS((staticPackage)-[:CALLS]->(:Package))
+				OR EXISTS((:Package)-[:CALLS]->(staticPackage))
+			WITH
+				COLLECT(DISTINCT staticPackage.fqn) AS staticPackages				
+            MATCH
+				(dynamicPackage:Package:Kieker)
+            WHERE
+				dynamicPackage.fqn IN staticPackages
+            SET
+				dynamicPackage:Experiment
+            RETURN
+				COUNT(dynamicPackage) AS DynamicExperimentPackages
+        ]]></cypher>
+    </concept>
+	
+	<concept id="experiment:static:ExperimentTypesCleanup">
+		<requiresConcept refId="experiment:dynamic:ExperimentTypes"/>
+		<requiresConcept refId="experiment:dynamic:ExperimentPackages"/>
+        <description>Removes all Experiment labels from static types that do not occur in the dynamic dependency graph.</description>
+        <cypher><![CDATA[
+			MATCH 
+				(staticType:Type:Java:Experiment)
+			WHERE NOT
+				(EXISTS((:Type:Kieker:Experiment{fqn:staticType.fqn})-[:CALLS]->(:Type:Kieker:Experiment))
+				OR EXISTS((:Type:Kieker:Experiment)-[:CALLS]->(:Type:Kieker:Experiment{fqn:staticType.fqn})))
+			REMOVE 
+				staticType:Experiment
+			RETURN
+				COUNT(DISTINCT staticType.fqn) AS RemovedExperimentTypes
+        ]]></cypher>
+    </concept>
+</jqa:jqassistant-rules>
