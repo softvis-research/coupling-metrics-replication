@@ -4,7 +4,9 @@ The replication of the experiment conducted by Schnoor and Hasselbring [Comparin
 
 ## Online Replication 
 
-Click on the badge to access the replication study online: [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/softvis-research/coupling-metrics-replication/HEAD?filepath=%2Fjupyter%2F)
+Click on the badge to access the replication study online.
+
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/softvis-research/coupling-metrics-replication/HEAD?filepath=%2Fjupyter%2F)
 
 ## Local Replication
 
