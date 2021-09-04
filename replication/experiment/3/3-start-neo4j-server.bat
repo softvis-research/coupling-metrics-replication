@@ -1,0 +1,1 @@
+../../tools/jqassistant-commandline-neo4jv3-1.8.0/bin/jqassistant.cmd server
