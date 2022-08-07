@@ -25,4 +25,5 @@ Click on the badge to access the replication study online.
 7. Execute `3-start-neo4j-server.bat` and explore the created dependency graphs of the selected experiment at http://localhost:7474/.
 8. Before you can execute the jupyter notebook `/jupyter/Replication of Comparing Coupling Metrics.ipynb`, you have to set up a corresponding environment. You can for example download [Anaconda](https://www.anaconda.com/products/individual) and install it. Furthermore, make sure that `jupyter notebook`, `pandas`, and `py2neo` are installed in the environment.
 
-
+## Publication
+* Richard Müller, Dirk Mahler, Christopher Klinkmüller: [Experiences in Replicating an Experiment on Comparing Static and Dynamic Coupling Metrics](http://ceur-ws.org/Vol-3043/short2.pdf), 12th Symposium on Software Performance, CEUR, Leipzig, Germany, 2021.
