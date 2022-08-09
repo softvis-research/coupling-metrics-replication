@@ -27,3 +27,5 @@ Click on the badge to access the replication study online.
 
 ## Publication
 * Richard Müller, Dirk Mahler, Christopher Klinkmüller: [Experiences in Replicating an Experiment on Comparing Static and Dynamic Coupling Metrics](http://ceur-ws.org/Vol-3043/short2.pdf), 12th Symposium on Software Performance, CEUR, Leipzig, Germany, 2021.
+
+You can find a complete list of publications on [our website](http://home.uni-leipzig.de/svis/Publications/).
